@@ -12,7 +12,7 @@
    3 · The Pitch — Pink · The Pitch: pick a door (intro) → Door 1: GTM · Door 2: Studio
    How viewers move through it: scroll, swipe, arrows and Next ride the axon one neuron at a time; far jumps use the warp cut. In Chapter 3 the intro axon splits, one branch to each door. The intro neuron sits centered, with the two doors behind it at the same height. The placard and index stay off the intro and both door shots. Each pitch neuron asks for a click; the camera pushes in, then that film opens in the same video.js player over a slightly shadowed connectome. Play, volume and speed (0.7×, 1×, 1.3×, 2×) are the player’s own controls. During the intro, the GTM and Studio neurons themselves appear on the film at 0:19 and 0:22, above each hand, and a click rides over and opens that film in the player. "Want to see the other door?" rides back through the fork; "Or skip the choosing, and hire me for both." opens Act 4.
    Act 4: the closing card appears when either door video ends and the viewer presses Next, or immediately on "Hire me for both." It has no border; the shade feathers out like the brief. The only heading is "Thanks for walking through." Three equal outlined buttons sit side by side — Résumé (resumeUrl), LinkedIn (linkedinUrl), and Email (emailUrl) — and each stays hidden until its field is set. "back to the exhibit" returns to the exhibit.
-   Still empty: films.intro, films.gtm and films.studio (paths beside this file until you point them elsewhere). Optional settings: doorsAppearAt and doorLayout. Also unset: scorePreview, films.introCaptions, films.gtmCaptions, films.studioCaptions. */
+   Still empty: films.intro, films.gtm and films.studio (paths beside this file until you point them elsewhere). Optional settings: doorsAppearAt and doorLayout. Also unset: films.introCaptions, films.gtmCaptions, films.studioCaptions. */
 :root{
   --void:#05050b;
   --night:#0d0f1a;
@@ -453,7 +453,9 @@ const CONFIG={
   resumeUrl:'https://drive.google.com/file/d/1QviZXFUdNuQi6lHf7zfeM-Loec3G4F-h/view?usp=sharing',
   linkedinUrl:'https://www.linkedin.com/in/chaeyeonkimscientist/',
   emailUrl:'chaeyeonkimwork@gmail.com',
-  scorePreview:'',       // e.g. 'media/body-conducts-5s.mp3' (5-second excerpt of The Body Conducts)
+  scorePreview:'media/body-conducts-excerpt.mp3', // The Body Conducts — Finale_spatial.mp3, 1:33–1:46
+  scorePreviewDur:13,
+  scorePreviewFade:1.5,
   films:{
     intro:'Intro.mp4', gtm:'GTM.mp4', studio:'Creative.mp4', // pitch films, loaded beside this file (not embedded)
     introCaptions:'', gtmCaptions:'', studioCaptions:''      // optional WebVTT urls, off until the CC toggle
@@ -594,14 +596,26 @@ function whoosh(dur){
   s.connect(f);f.connect(g);AU.bus(g,false);s.start(t);s.stop(t+dur+.1);
 }
 function chime(ch){if(!AU.ctx)return;const t=AU.ctx.currentTime+.05;CHORDS[ch].forEach((fr,i)=>tone(fr*4,'sine',t+i*.11,1.8,.035,.004));}
-let previewUntil=0,scoreEl=null,scoreGain=null;
+let previewUntil=0,scoreEl=null,scoreGain=null,previewTimer=0;
+function armPreviewFade(dur,fade){
+  const t=AU.ctx.currentTime,g=scoreGain.gain;
+  g.cancelScheduledValues(t);g.setValueAtTime(0,t);
+  g.linearRampToValueAtTime(1,t+fade);
+  g.linearRampToValueAtTime(1,t+Math.max(fade,dur-fade));
+  g.linearRampToValueAtTime(0,t+dur);
+}
 function playPreview(){
-  if(!AU.init())return;const c=AU.ctx,now=c.currentTime;if(now<previewUntil)return;previewUntil=now+5.4;
-  setDuck(AMB.duck+1);setTimeout(()=>setDuck(Math.max(0,AMB.duck-1)),5400);
-  if(CONFIG.scorePreview){
-    if(!scoreEl){scoreEl=new Audio(CONFIG.scorePreview);scoreEl.preload='auto';const src=c.createMediaElementSource(scoreEl);scoreGain=c.createGain();src.connect(scoreGain);AU.bus(scoreGain,false);}
-    scoreEl.currentTime=0;scoreGain.gain.cancelScheduledValues(now);scoreGain.gain.setValueAtTime(1,now);scoreGain.gain.setValueAtTime(1,now+4.3);scoreGain.gain.linearRampToValueAtTime(0,now+5);
-    scoreEl.play().catch(()=>{});setTimeout(()=>{scoreEl.pause();},5100);
+  if(!AU.init())return;const c=AU.ctx,now=c.currentTime;if(now<previewUntil)return;
+  const scored=!!CONFIG.scorePreview,dur=scored?(CONFIG.scorePreviewDur||13):5,fade=CONFIG.scorePreviewFade||1.5;
+  previewUntil=now+dur+.4;
+  setDuck(AMB.duck+1);clearTimeout(previewTimer);previewTimer=setTimeout(()=>setDuck(Math.max(0,AMB.duck-1)),(dur+.4)*1000);
+  if(scored){
+    if(!scoreEl){scoreEl=new Audio(CONFIG.scorePreview);scoreEl.preload='auto';scoreEl.loop=false;const src=c.createMediaElementSource(scoreEl);scoreGain=c.createGain();scoreGain.gain.value=0;src.connect(scoreGain);AU.bus(scoreGain,false);
+      scoreEl.addEventListener('playing',()=>armPreviewFade(dur,fade));}
+    scoreGain.gain.cancelScheduledValues(now);scoreGain.gain.setValueAtTime(0,now);
+    const start=()=>{scoreEl.currentTime=0;scoreEl.play().catch(()=>{});
+      clearTimeout(scoreEl._stop);scoreEl._stop=setTimeout(()=>{scoreEl.pause();},(dur+.15)*1000);};
+    if(scoreEl.readyState>=2)start();else{clearTimeout(scoreEl._stop);scoreEl.addEventListener('canplay',start,{once:true});}
   }else{
     const notes=[440,523.25,659.25,783.99,659.25,523.25,587.33,698.46,880,698.46,587.33,493.88];
     notes.forEach((n,i)=>tone(n,'triangle',now+i*.38,1.1,.09,.015));
@@ -2007,7 +2021,7 @@ function renderLabel(e){
   const date=e.date||e.meta?`<div class="date">${esc(e.date||e.meta)}</div>`:'';
   const stat=e.stat?`<div class="stat"><b>${esc(e.stat)}</b><span>${esc(e.statLabel||'')}</span></div>`:'';
   let act='';
-  if(e.action==='preview')act=`<div class="act"><button type="button" data-act="preview">▶ Play a 5-second excerpt</button></div>`;
+  if(e.action==='preview')act=`<div class="act"><button type="button" data-act="preview">▶ Play an excerpt</button></div>`;
   if(e.action==='film'){const S=screens[e.id];
     const again=(e.role==='intro'||e.role==='door')&&watchedFilms.has(e.film)?`<button type="button" data-act="replay">${e.role==='intro'?'Replay intro':'Watch again'}</button>`:'';
     if((e.role==='intro'||e.role==='door')&&!introOpen&&!(e.role==='door'&&doorSettled(e)))act=`<div class="act"><button type="button" data-act="enter">Click to enter</button>${again}</div>`;
